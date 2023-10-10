@@ -5,6 +5,7 @@ import threading
 import datetime
 import os
 import argparse
+import math
 
 def get_data(content, mode='', api_key='', max_tries=5):
     n = 0
@@ -44,6 +45,7 @@ def thread_query(index, mbti, command_list, api_key, key_n, thread_n, base_path)
         input_text = command
         content.append({"role": "user", "content": input_text})
         response = get_data(content, mode='multi', api_key=api_key)
+        # response = str(thread_n)
         if response == -1:
             response = ''
         if k == 0:
@@ -94,12 +96,15 @@ if __name__ == '__main__':
     thread_num = args.thread_num
 
     bucket_size = use_key_num * thread_num
-    bucket_num = len(data_list) // bucket_size
+    bucket_num = math.ceil(len(data_list) / bucket_size)
+    # print(len(data_list), bucket_size, bucket_num)
     thread_query_list = [data_list[i*bucket_size:(i+1)*bucket_size] for i in range(bucket_num)]
+    # print(len(thread_query_list[0]), len(thread_query_list[-1]))
     if bucket_size * bucket_num < len(data_list):
         thread_query_list.append(data_list[-(len(data_list)-bucket_size*bucket_num):])
-    
+
     for query_index in range(len(thread_query_list)):
+        print("query_index", query_index)
         with open('./query_log.txt', 'a', encoding='utf-8') as f:
             f.write('query {} start'.format(str(query_index)))
             f.write('\n')
@@ -110,9 +115,10 @@ if __name__ == '__main__':
         for key in range(use_key_num):
             for thread in range(thread_num):
                 index_list.append((key, thread))
-
+        print(len(index_list), index_list)
         threads = []
         for index in range(len(index_list)):
+            # print('query {} thread {} start'.format(str(query_index), str(index)))
             mbti = thread_query_list[query_index][index]['mbti']
             command_list = thread_query_list[query_index][index]['command_list']
             key_index = index_list[index][0]
@@ -135,7 +141,7 @@ if __name__ == '__main__':
     file_list = os.listdir(output_dir)
     for file in file_list:
         with open(output_dir+file, 'r+', encoding='utf-8') as fin:
-            with open('./1.json', 'a', encoding='utf-8') as fout:
+            with open('./profile_output.json', 'a', encoding='utf-8') as fout:
                 line = fin.readline()
                 while line:
                     fout.write(line)

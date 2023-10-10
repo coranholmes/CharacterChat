@@ -1,6 +1,16 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# @Time    : 22/9/23 11:43 am
+# @Author  : CHEN Weiling
+# @File    : query_data_big5.py
+# @Software: PyCharm
+# @Comments:
+
 import os
 import re
-
+import sys
+import time
+import math
 import openai
 import json
 import random
@@ -10,6 +20,8 @@ import string
 import difflib
 import random
 import argparse
+import numpy as np
+
 
 def get_data(content, mode='', api_key='', max_tries=5):
     n = 0
@@ -26,10 +38,12 @@ def get_data(content, mode='', api_key='', max_tries=5):
         except Exception as e:
             print(e)
             n += 1
+            time.sleep(n)
             continue
     if n == max_tries:
         return -1
     return response["choices"][0]["message"]["content"]
+
 
 def process_content(content, last_sentence=''):
     content = re.sub(r'\n+', '', content)
@@ -39,10 +53,10 @@ def process_content(content, last_sentence=''):
     content = re.sub(r'}', ')', content)
     special_character_list = [',', '.', '!', '?']
     for _ in special_character_list:
-        content = content.replace(_, _+'#')
+        content = content.replace(_, _ + '#')
     content_list = content.split('#')
     content_list = [_ for _ in content_list if len(_.split(' ')) >= 3]
-    
+
     filter_words = ['Thank you', 'AI']
     new_content = ''
     for _ in content_list:
@@ -53,12 +67,12 @@ def process_content(content, last_sentence=''):
                 break
         if not flag:
             new_content += _
-    
+
     if last_sentence != '':
         special_character_list = [',', '.', '!', '?']
         for _ in special_character_list:
-            last_sentence = last_sentence.replace(_, _+'#')
-            new_content = new_content.replace(_, _+'#')
+            last_sentence = last_sentence.replace(_, _ + '#')
+            new_content = new_content.replace(_, _ + '#')
         last_sentence_list = last_sentence.split('#')
         new_content_list = new_content.split('#')
         s1 = last_sentence_list[0]
@@ -72,6 +86,7 @@ def process_content(content, last_sentence=''):
         character_dict = dict(zip(string.ascii_lowercase, string.ascii_uppercase))
         new_content = character_dict[new_content[0]] + new_content[1:]
     return new_content
+
 
 def eval_sentence(sentence, api_key=''):
     eval_prompt = """Task: Sentiment Scoring
@@ -103,14 +118,16 @@ Sentiment score the following sentences. Only the rating is output, no additiona
         return -1
     return score
 
+
 def check_end_state(score_list):
     if len(score_list) >= 5 and score_list[-2] >= 4 and score_list[-1] >= 4:
         return True
     return False
 
+
 def get_additional_info(last_sentence, info_list, info_filter=[], api_key=''):
     info_list = [_ for _ in info_list if _ not in info_filter]
-    
+
     prompt = """You are chatting with someone, just now, the other person said:
 {}
 In order to make the conversation flow more smoothly, you may need some additional information about yourself to respond. Now, you can choose the most suitable aspect from the following list:
@@ -130,6 +147,7 @@ Only output the aspect you choose, do not output redundant information. If you d
         info = ''
     return info
 
+
 def get_reply(last_sentence, raw_reply, field, info, api_key=''):
     prompt = """You are chatting with someone.
 Just now, the other person said: {}
@@ -140,7 +158,7 @@ Now here is the additional character settings about your {}:
 Note that this character settings is about yourself, not about someone else, which means {}
 For information that does not appear in the character settings, you can use the second person to express.
 
-Please rewrite what you said based on this character settings with emoji to better reply the other person.
+Please rewrite what you said based on this character settings to better reply the other person.
 When rewriting, you need to mention this character settings.
 Control the output length not to exceed 2 sentences and less than 30 words. These sentences are not allowed to be separated by commas.
 
@@ -163,11 +181,12 @@ Output:"""
         field_statement = 'use the first person to express (I/My ...).'
     prompt = prompt.format(last_sentence, raw_reply, field, info, field_statement)
     content = [{'role': 'user', 'content': prompt}]
-    
+
     resp = get_data(content, mode='multi', api_key=api_key)
     if resp == -1:
         return raw_reply
     return resp
+
 
 def get_info_filter(field_list, info, round_num=5, max_num=1):
     if len(field_list) < round_num:
@@ -186,23 +205,26 @@ def get_info_filter(field_list, info, round_num=5, max_num=1):
             info_filter = [k]
     return info_filter
 
-def gen_dial(seeker_statement, supporter_statement, seeker_profile, supporter_profile, seeker_tone='', supporter_tone='', max_turn=20, api_key=''):
+
+def gen_dial(seeker_statement, supporter_statement, seeker_profile, supporter_profile, seeker_tone='',
+             supporter_tone='', max_turn=20, api_key=''):
     ########## prompt ##########
 
-    answer_prompt_prefix_supporter = """You are chatting with someone online. The other party has encountered some problems recently, and you will give comfort and help to the other party through chatting.
+    answer_prompt_prefix_supporter = """You are chatting with someone online. The other party would like to discuss with you about a topic he/she is interested. Try to allow the conversation to flow naturally and explore diverse perspectives and opinions.
 
 Now, the other party say:
 """
-    answer_prompt_prefix_seeker = """You are chatting with someone online. You have encountered some problems recently and want to have chat with someone. If the other party ask you recent situation, you will tell the other party the issue you encountered in detail.
+    answer_prompt_prefix_seeker = """You are chatting with someone online. You should cover, but should not be limited to, the following topics: personal life, work, conerns, hobbies or a wider range of subjects such as science, technology, society, environment, arts, and more. Allow the conversation to flow naturally and explore diverse perspectives and opinions.
 
 Now, the other party say:
 """
     answer_prompt_postfix_supporter = """
 Your response should meet the following requirements:
 1. Do not reveal in any way that you are an AI or that you are roleplaying, always remember that you are who you are.
-2. Talk like a normal person, which means you don't have to be too polite and don't repeat what the other person or yourself have said.
-3. Every time you reply, you need to insert emoji in the reply, which should match the emotion and dialogue situation of the reply. Emoji should be rich and avoid duplication with what is already in the chat history.
-4. Control the length, only responed one or two sentences at a time, each sentence should be short, just like a normal person talk with someone.
+2. Talk like a normal person, which means you don't have to be too polite and you must not repeat what the other person or yourself have said.
+3. You must always follow your character setting when replying, and you must NOT say anything that is against your character setting.
+4. Control the length, only respond one or two sentences at a time, each sentence should be short, just like how you usually talk with others.
+5. You should respond in English.
 
 Use everyday language to reply.{}
 Here is some additional settings about yourself:
@@ -212,9 +234,10 @@ Now, you reply:"""
     answer_prompt_postfix_seeker = """
 Your response should meet the following requirements:
 1. Do not reveal in any way that you are an AI or that you are roleplaying, always remember that you are who you are.
-2. Talk like a normal person, which means you don't have to be too polite and don't repeat what the other person or yourself have said.
-3. Every time you reply, you need to insert emoji in the reply, which should match the emotion and dialogue situation of the reply. Emoji should be rich and avoid duplication with what is already in the chat history.
-4. Control the length, only responed one or two sentences at a time, each sentence should be short, just like a normal person talk with someone.
+2. Talk like a normal person, which means you don't have to be too polite and you must not repeat what the other person or yourself have said.
+3. You must always follow your character setting when replying, and you must NOT say anything that is against your character setting.
+4. Control the length, only respond one or two sentences at a time, each sentence should be short, just like how you usually talk with others.
+5. You should respond in English.
 
 Use everyday language to reply.{}
 Here is some additional settings about yourself:
@@ -225,12 +248,12 @@ Now, you reply:"""
     tone_prompt = """Deep imitation of a person's speaking tone, which is described as follows:
 {}
 
-Generate 5 samples in the format of "When the other party xxx, you should say xxx"
+Generate 5 samples in the format of "When the other party xxx, you should say xxx" in English.
 Do not generate redundant information.
 """
 
-    supporter_end_prompt = """You had a chat with the other party, and the other party got your comfort. It's time to say goodbye.
-Say goodbye to the other party and end this conversation! However, you'd better think of a better reason to say goodbye based on your character setting. At the same time, the farewell should not be too abrupt, otherwise it will appear impolite.
+    supporter_end_prompt = """You had a chat with the other party. It's time to say goodbye.
+Say goodbye to the other party and end this conversation! However, you'd better think of a better reason to say goodbye based on your character setting. At the same time, the farewell should not be too abrupt.
 Reply with one or two sentences, each sentence should be short, just like a normal person talk with someone. Your tone is described as follows:
 {}
 
@@ -238,8 +261,8 @@ The other party just say: {}
 Now, you reply:
 """
 
-    seeker_end_prompt = """You had a chat with the other party, and you got comfort and advice from the other party after chatting with the other party about the problems you encountered. It's time to say goodbye.
-Say goodbye to the other party and end this conversation! However, you'd better think of a better reason to say goodbye based on your character setting. At the same time, the farewell should not be too abrupt, otherwise it will appear impolite.
+    seeker_end_prompt = """You had a chat with the other party. It's time to say goodbye.
+Say goodbye to the other party and end this conversation! However, you'd better think of a better reason to say goodbye based on your character setting. At the same time, the farewell should not be too abrupt.
 Reply with one or two sentences, each sentence should be short, just like a normal person talk with someone. Your tone is described as follows:
 {}
 
@@ -249,14 +272,16 @@ Now, you reply:
 
     ########## prompt ##########
 
-    seeker_base_fields = ['name', 'gender', 'age', 'region', 'tone', 'job', 'personality', 'additional_information']
-    supporter_base_fields = ['name', 'gender', 'age', 'region', 'tone', 'job', 'personality', 'additional_information', 'recent_worry_or_anxiety']
+    seeker_base_fields = ['name', 'gender', 'age', 'region', 'tone', 'job', 'personality', 'additional_information',
+                          'recent_worry_or_anxiety']
+    supporter_base_fields = ['name', 'gender', 'age', 'region', 'tone', 'job', 'personality', 'additional_information',
+                             'recent_worry_or_anxiety']
     seeker_additional_info = [_ for _ in seeker_profile if _ not in seeker_base_fields]
     supporter_additional_info = [_ for _ in supporter_profile if _ not in supporter_base_fields]
 
     dial = []
     dial_flag = True
-    
+
     seeker_content = []
     supporter_content = []
 
@@ -289,8 +314,9 @@ Now, you reply:
     round_num = max_turn
     score_list = []
     stop_flag = False
-    initial_dialogue = 'Hello'
-    current_speaker = 'seeker'
+    openings = ["Hello", "What's on your mind?", "What's up?", "What's going on?", "What's happening?", "Where shall we start?", "How's everything going?", "What would you like to talk about?", "Any news you would like to share?", "What have you done yesterday?", "What do you do during your free time?", "What's your next plan?"]
+    initial_dialogue = random.choice(openings)
+    current_speaker = 'supporter'
     field_list = []
     info_filter = []
     while i <= round_num:
@@ -308,26 +334,27 @@ Now, you reply:
                     'choose_info': {
                         'aspect': '',
                         'content': ''
-                        },
-                        'utterance': initial_dialogue
-                        }
+                    },
+                    'utterance': initial_dialogue
+                }
                 dial.append(dial_item)
                 i += 1
                 turn_index += 1
                 continue
-            
+
             pre_content = seeker_content[-1]['content']
             if not stop_flag:
                 seeker_content[-1]['content'] = answer_prompt_prefix_seeker + pre_content + answer_prompt_postfix_seeker
                 seeker_tone_format = ''
                 if seeker_tone:
                     seeker_tone_format = 'Your tone is described as follows:\n' + seeker_tone + '\nPlease mimic this tone when replying.'
-                
+
                 seeker_info_format = ''
                 if i == 2:
                     seeker_info = 'recent_worry_or_anxiety'
                 else:
-                    seeker_info = get_additional_info(pre_content, seeker_additional_info, info_filter=info_filter, api_key=api_key)
+                    seeker_info = get_additional_info(pre_content, seeker_additional_info, info_filter=info_filter,
+                                                      api_key=api_key)
                     if seeker_info == '':
                         t = random.randint(0, 1)
                         if t == 0:
@@ -337,14 +364,15 @@ Now, you reply:
 
                 if seeker_info and seeker_info in seeker_profile:
                     seeker_info_format = seeker_profile[seeker_info]
-                
+
                 try:
-                    seeker_content[-1]['content'] = seeker_content[-1]['content'].format(seeker_tone_format, seeker_info_format)
+                    seeker_content[-1]['content'] = seeker_content[-1]['content'].format(seeker_tone_format,
+                                                                                         seeker_info_format)
                 except Exception as e:
                     print(seeker_content[-1]['content'])
             else:
                 seeker_content[-1]['content'] = seeker_end_prompt.format(seeker_tone, pre_content)
-            
+
             resp = get_data(seeker_content, mode='multi', api_key=api_key)
             if resp == -1:
                 dial_flag = False
@@ -377,17 +405,36 @@ Now, you reply:
                     i = 2
             i += 1
             turn_index += 1
-            
+
         elif current_speaker == 'supporter':
+            if i == 0:
+                seeker_content.append({'role': 'assistant', 'content': initial_dialogue})
+                supporter_content.append({'role': 'user', 'content': initial_dialogue})
+                current_speaker = 'seeker'
+                dial_item = {
+                    'turn': 0,
+                    'speaker': 'supporter',
+                    'choose_info': {
+                        'aspect': '',
+                        'content': ''
+                    },
+                    'utterance': initial_dialogue
+                }
+                dial.append(dial_item)
+                i += 1
+                turn_index += 1
+                continue
             pre_content = supporter_content[-1]['content']
             if not stop_flag:
-                supporter_content[-1]['content'] = answer_prompt_prefix_supporter + pre_content + answer_prompt_postfix_supporter
+                supporter_content[-1][
+                    'content'] = answer_prompt_prefix_supporter + pre_content + answer_prompt_postfix_supporter
                 supporter_tone_format = ''
                 if supporter_tone:
                     supporter_tone_format = 'Your tone is described as follows:\n' + supporter_tone + '\nPlease mimic this tone when replying.'
                 supporter_info_format = ''
-                
-                supporter_info = get_additional_info(pre_content, supporter_additional_info, info_filter=info_filter, api_key=api_key)
+
+                supporter_info = get_additional_info(pre_content, supporter_additional_info, info_filter=info_filter,
+                                                     api_key=api_key)
                 if supporter_info == '':
                     t = random.randint(0, 1)
                     if t == 0:
@@ -396,9 +443,10 @@ Now, you reply:
                     info_filter = get_info_filter(field_list, supporter_info)
                 if supporter_info and supporter_info in supporter_profile:
                     supporter_info_format = supporter_profile[supporter_info]
-                
+
                 try:
-                    supporter_content[-1]['content'] = supporter_content[-1]['content'].format(supporter_tone_format, supporter_info_format)
+                    supporter_content[-1]['content'] = supporter_content[-1]['content'].format(supporter_tone_format,
+                                                                                               supporter_info_format)
                 except Exception as e:
                     print(supporter_content[-1]['content'])
             else:
@@ -410,7 +458,7 @@ Now, you reply:
                 break
             resp = process_content(resp, pre_content)
             supporter_content[-1]['content'] = pre_content
-            
+
             if resp == '':
                 resp = 'Um, please go on, I\'m listening.'
             seeker_content.append({'role': 'user', 'content': resp})
@@ -434,7 +482,7 @@ Now, you reply:
                     i = 2
             i += 1
             turn_index += 1
-    
+
     data = {
         'dial_flag': dial_flag,
         'dial': dial,
@@ -444,48 +492,57 @@ Now, you reply:
     return data
 
 
-def thread_query(index, mbti_profile_seeker, mbti_profile_supporter, api_key, key_n, thread_n, base_path):
-    seeker_mbti = mbti_profile_seeker['mbti']
-    seeker_statement = mbti_profile_seeker['seeker_statement']
-    seeker_profile_trans = mbti_profile_seeker['profile_trans']
-    seeker_tone = ''
-    if 'tone' in seeker_profile_trans:
-        seeker_tone = seeker_profile_trans['tone']
-    supporter_mbti = mbti_profile_supporter['mbti']
-    supporter_statement = mbti_profile_supporter['supporter_statement']
-    supporter_profile_trans = mbti_profile_supporter['profile_trans']
-    supporter_tone = ''
-    if 'tone' in supporter_profile_trans:
-        supporter_tone = supporter_profile_trans['tone']
-    data = gen_dial(seeker_statement, supporter_statement, seeker_profile_trans, supporter_profile_trans, seeker_tone, supporter_tone, api_key=api_key)
-    dial_flag = data['dial_flag']
-    dial = data['dial']
-    seeker_tone_sentences = data['seeker_tone_sentences']
-    supporter_tone_sentences = data['supporter_tone_sentences']
-    if dial_flag:
-        json_item = {
-            'index': index,
-            'seeker_info': {
-                'seeker_index': mbti_profile_seeker['index'],
-                'seeker_mbti': seeker_mbti,
-                'seeker_profile': mbti_profile_seeker['profile'],
-                'seeker_profile_trans': seeker_profile_trans,
-                'seeker_statement': seeker_statement,
-                'seeker_tone_sentences': seeker_tone_sentences
-            },
-            'supporter_info': {
-                'supporter_index': mbti_profile_supporter['index'],
-                'supporter_mbti': supporter_mbti,
-                'supporter_profile': mbti_profile_supporter['profile'],
-                'supporter_profile_trans': supporter_profile_trans,
-                'supporter_statement': supporter_statement,
-                'supporter_tone_sentences': supporter_tone_sentences,
-            },
-            'dial': dial
-        }
-        with open(base_path+'key_{}_thread_{}.json'.format(str(key_n), str(thread_n)), 'a', encoding='utf-8') as f:
-            f.write(json.dumps(json_item, ensure_ascii=False))
-            f.write('\n')
+def thread_query(index, mbti_profile_seeker_list, mbti_profile_supporter_list, api_key, key_n, thread_n, base_path):
+    for i, mbti_profile_seeker in enumerate(mbti_profile_seeker_list):
+        mbti_profile_supporter = mbti_profile_supporter_list[i]
+        seeker_mbti = mbti_profile_seeker['mbti']
+        seeker_statement = mbti_profile_seeker['seeker_statement']
+        seeker_profile_trans = mbti_profile_seeker['profile_trans']
+        seeker_tone = ''
+        if 'tone' in seeker_profile_trans:
+            seeker_tone = seeker_profile_trans['tone']
+        supporter_mbti = mbti_profile_supporter['mbti']
+        supporter_statement = mbti_profile_supporter['supporter_statement']
+        supporter_profile_trans = mbti_profile_supporter['profile_trans']
+        supporter_tone = ''
+        if 'tone' in supporter_profile_trans:
+            supporter_tone = supporter_profile_trans['tone']
+        print("thread", thread_n, "==============================")
+        print("seeker: ", seeker_mbti)
+        print("supporter: ", supporter_mbti)
+        data = gen_dial(seeker_statement, supporter_statement, seeker_profile_trans, supporter_profile_trans,
+                        seeker_tone,
+                        supporter_tone, api_key=api_key)
+        dial_flag = data['dial_flag']
+        dial = data['dial']
+        seeker_tone_sentences = data['seeker_tone_sentences']
+        supporter_tone_sentences = data['supporter_tone_sentences']
+        if dial_flag:
+            json_item = {
+                'index': int(index[i]),
+                'seeker_info': {
+                    'seeker_index': mbti_profile_seeker['index'],
+                    'seeker_mbti': seeker_mbti,
+                    'seeker_profile': mbti_profile_seeker['profile'],
+                    'seeker_profile_trans': seeker_profile_trans,
+                    'seeker_statement': seeker_statement,
+                    'seeker_tone_sentences': seeker_tone_sentences
+                },
+                'supporter_info': {
+                    'supporter_index': mbti_profile_supporter['index'],
+                    'supporter_mbti': supporter_mbti,
+                    'supporter_profile': mbti_profile_supporter['profile'],
+                    'supporter_profile_trans': supporter_profile_trans,
+                    'supporter_statement': supporter_statement,
+                    'supporter_tone_sentences': supporter_tone_sentences,
+                },
+                'dial': dial
+            }
+            with open(base_path + 'key_{}_thread_{}.json'.format(str(key_n), str(thread_n)), 'a',
+                      encoding='utf-8') as f:
+                f.write(json.dumps(json_item, ensure_ascii=False))
+                f.write('\n')
+
 
 if __name__ == '__main__':
     random.seed(0)
@@ -495,6 +552,7 @@ if __name__ == '__main__':
     parser.add_argument('--output_dir', type=str, default='./data/dial_output/')
     parser.add_argument('--output_file', type=str, default='./data/dial_output.json')
     parser.add_argument('--api_key_file', type=str, default='./api_keys.txt')
+    parser.add_argument('--start_from', type=int, default=0)
     parser.add_argument('--thread_num', type=int, default=1)
     args = parser.parse_args()
 
@@ -502,60 +560,62 @@ if __name__ == '__main__':
     output_dir = args.output_dir
     output_file = args.output_file
 
+    # if output_dir exists, delete it
+    # if os.path.exists(output_dir):
+    #     os.system('rm -rf ' + output_dir)
+    # os.makedirs(output_dir)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-    
+
     with open(args.api_key_file, 'r+', encoding='utf-8') as f:
         api_key_list = [_.strip() for _ in f.readlines()]
     with open(input_file, 'r+', encoding='utf-8') as f:
         data_list = [json.loads(_) for _ in f.readlines()]
-    
+
+    data_list = data_list[args.start_from:]
+
     use_key_num = len(api_key_list)
     thread_num = args.thread_num
 
-    bucket_size = use_key_num * thread_num
-    bucket_num = len(data_list) // bucket_size
-    thread_query_list = [data_list[i*bucket_size:(i+1)*bucket_size] for i in range(bucket_num)]
-    if bucket_size * bucket_num < len(data_list):
-        thread_query_list.append(data_list[-(len(data_list)-bucket_size*bucket_num):])
-    
-    for query_index in range(len(thread_query_list)):
-        with open('./query_log.txt', 'a', encoding='utf-8') as f:
-            f.write('query {} start'.format(str(query_index)))
-            f.write('\n')
-            f.write(str(datetime.datetime.now()))
-            f.write('\n')
+    # assign data in data_list to each process
+    data_num = len(data_list)
+    data_per_thread = math.ceil(data_num / thread_num)
+    data_list_per_thread = []
+    index_list_per_thread = []
+    for i in range(thread_num):
+        cur_task_ids = np.arange(i, data_num, thread_num)
+        index_list_per_thread.append(cur_task_ids)
+        data_list_per_thread.append([data_list[_] for _ in cur_task_ids])
 
-        index_list = []
-        for key in range(use_key_num):
-            for thread in range(thread_num):
-                index_list.append((key, thread))
-        index_list = index_list[:len(thread_query_list[query_index])]
+    # assign api key to each thread
+    api_key_per_thread = []
+    for i in range(thread_num):
+        api_key_per_thread.append(api_key_list[i % use_key_num])
+    # print("api_key_per_thread", api_key_per_thread)
 
-        threads = []
-        for index in range(len(index_list)):
-            mbti_profile_seeker = thread_query_list[query_index][index][0]
-            mbti_profile_supporter = thread_query_list[query_index][index][1]
-            key_index = index_list[index][0]
-            thread_n = index_list[index][1]
-            api_key = api_key_list[key_index]
-            threads.append(threading.Thread(target=thread_query, args=(query_index*bucket_size+index, mbti_profile_seeker, mbti_profile_supporter, api_key, key_index, thread_n, output_dir)))
-
-        for thread in threads:
-            thread.start()
-
-        for thread in threads:
-            thread.join()
-
-        with open('./query_log.txt', 'a', encoding='utf-8') as f:
-            f.write('query {} end'.format(str(query_index)))
-            f.write('\n')
-            f.write(str(datetime.datetime.now()))
-            f.write('\n')
+    # for each thread, run thread_query
+    thread_list = []
+    for thread_n in range(thread_num):
+        print(len(data_list_per_thread[thread_n]))
+        mbti_profile_seeker, mbti_profile_supporter = [], []
+        for data in data_list_per_thread[thread_n]:
+            # tmp = json.loads(data['filled_profile'])
+            mbti_profile_seeker.append(data[0])
+            mbti_profile_supporter.append(data[1])
+        t = threading.Thread(target=thread_query, args=(
+        index_list_per_thread[thread_n], mbti_profile_seeker, mbti_profile_supporter, api_key_per_thread[thread_n], 0, thread_n, output_dir))
+        thread_list.append(t)
+    for t in thread_list:
+        t.daemon = True
+        t.start()
+    for t in thread_list:
+        t.join()
 
     file_list = os.listdir(output_dir)
     for file in file_list:
-        with open(output_dir+file, 'r+', encoding='utf-8') as fin:
-            line = fin.readline()
+        with open(output_dir + file, 'r+', encoding='utf-8') as fin:
             with open(output_file, 'a', encoding='utf-8') as fout:
-                fout.write(line)
+                line = fin.readline()
+                while line:
+                    fout.write(line)
+                    line = fin.readline()

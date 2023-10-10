@@ -1,1 +1,1 @@
-python src/profile_trans/query_data.py --thread_num 4
+python src/profile_trans/query_data_big5.py --thread_num 4
