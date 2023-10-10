@@ -12,8 +12,8 @@ import os, argparse, json, re
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--input_file', type=str, default='')
-    parser.add_argument('--input_dir', type=str, default='./data/big5_IPIP_50item_rating/')
-    parser.add_argument('--output_file', type=str, default='./data/big5_rating.json')
+    parser.add_argument('--input_dir', type=str, default='./data/gpt4-profile-35-dial-1000/big5_rating/big5_IPIP_50item_rating_new_template/')
+    parser.add_argument('--output_file', type=str, default='./data/gpt4-profile-35-dial-1000/big5_rating/big5_rating_v2.json')
     parser.add_argument('--api_key_file', type=str, default='./api_keys.txt')
     parser.add_argument('--start_from', type=int, default=0)
     parser.add_argument('--thread_num', type=int, default=4)

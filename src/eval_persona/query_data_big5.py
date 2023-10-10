@@ -77,7 +77,7 @@ def thread_query(index, mbti_list, ques_list, res_list, api_key, key_n, thread_n
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input_dir', type=str, default='./data/big5_IPIP_50item_response_new_template/')
+    parser.add_argument('--input_dir', type=str, default='./data/gpt4-profile-35-dial-1000/big5_rating/big5_IPIP_50item_response_new_template/')
     parser.add_argument('--input_file', type=str, default='')
     parser.add_argument('--output_dir', type=str, default='./data/eval_persona/')
     parser.add_argument('--api_key_file', type=str, default='./api_keys.txt')
@@ -99,8 +99,6 @@ if __name__ == '__main__':
     # 遍历每个人的问卷
     for input_file in file_list:
         print("input_file: ", input_file)
-        if input_file in ['eval_persona_0.json', 'eval_persona_1.json', 'eval_persona_4.json', 'eval_persona_12.json']:
-            continue
         # if output_dir exists, delete it
         if os.path.exists(output_dir):
             os.system('rm -rf ' + output_dir)
@@ -150,7 +148,7 @@ if __name__ == '__main__':
             t.join()
 
         # combine all files
-        output_file = "./data/big5_IPIP_50item_rating_new_template/" + input_file.split('/')[-1].split('.')[0] + "_output.json"
+        output_file = "./data/gpt4-profile-35-dial-1000/big5_rating/big5_IPIP_50item_rating_new_template/" + input_file.split('/')[-1].split('.')[0] + "_output.json"
         combined_file_list = os.listdir(output_dir)
         for file in combined_file_list:
             with open(output_dir + file, 'r+', encoding='utf-8') as fin:
